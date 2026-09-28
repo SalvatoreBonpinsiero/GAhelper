@@ -1,0 +1,37 @@
+name: Build GAhelper ASI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Configure CMake
+        run: >
+          cmake -B build -A Win32
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Project
+        run: cmake --build build --config Release --parallel
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GAhelper-ASI
+          path: build/Release/GAhelper.asi
