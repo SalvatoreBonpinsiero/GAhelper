@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Глушим предупреждение политики для FetchContent в новых версиях CMake
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+
 project(GAhelper LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -16,7 +22,7 @@ add_compile_definitions(
 
 include(FetchContent)
 
-
+# 1. Автоскачивание MinHook
 FetchContent_Declare(
     minhook
     GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
@@ -24,7 +30,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(minhook)
 
-
+# 2. Автоскачивание Dear ImGui
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -33,25 +39,42 @@ FetchContent_Declare(
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
     FetchContent_Populate(imgui)
-    set(IMGUI_DIR ${imgui_SOURCE_DIR})
-    set(IMGUI_SOURCES
-        ${IMGUI_DIR}/imgui.cpp
-        ${IMGUI_DIR}/imgui_draw.cpp
-        ${IMGUI_DIR}/imgui_tables.cpp
-        ${IMGUI_DIR}/imgui_widgets.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_dx9.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
-    )
 endif()
 
+set(IMGUI_DIR "${imgui_SOURCE_DIR}")
+set(IMGUI_SOURCES
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_dx9.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_win32.cpp
+)
+
 include_directories(
-    src
+    ${minhook_SOURCE_DIR}/include
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
 )
 
+# 3. Универсальный поиск main.cpp (в src/, в корне или во вложенных папках)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+    set(MAIN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
+    set(MAIN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+else()
+    file(GLOB_RECURSE ALL_MAINS "main.cpp")
+    if(ALL_MAINS)
+        list(GET ALL_MAINS 0 MAIN_SOURCE)
+    else()
+        message(FATAL_ERROR "Файл main.cpp не найден ни в src/, ни в корне! Проверьте git status.")
+    endif()
+endif()
+
 add_library(${PROJECT_NAME} SHARED
-    src/main.cpp
+    ${MAIN_SOURCE}
     ${IMGUI_SOURCES}
 )
 
