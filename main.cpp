@@ -3,12 +3,11 @@
 #include <shellapi.h>
 #include <string>
 #include <vector>
-#include <algorithm>
 
 #include "imgui.h"
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
-#include "kiero.h"
+#include "MinHook.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -117,7 +116,7 @@ void FastAcceptReport(bool isAuto) {
 
         if (autoCatch) {
             g_AutoReport = false;
-            AddNotification("Репорт взят! Авто-ловля отключена (Вкл: K)");
+            AddNotification("Репорт взят! Авто-ловля выключена (Вкл: K)");
         } else {
             AddNotification("Ручная ловля: /reports -> 3x Enter");
         }
@@ -430,15 +429,55 @@ HRESULT __stdcall hkReset(LPDIRECT3DDEVICE9 pDevice, D3DPRESENT_PARAMETERS* pPre
     return hr;
 }
 
+bool HookDirectX9() {
+    WNDCLASSEXA wc = { sizeof(WNDCLASSEXA), CS_CLASSDC, DefWindowProcA, 0L, 0L, GetModuleHandleA(NULL), NULL, NULL, NULL, NULL, "GA_Dummy", NULL };
+    RegisterClassExA(&wc);
+    HWND hWnd = CreateWindowA("GA_Dummy", NULL, WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
+
+    LPDIRECT3D9 pD3D = Direct3DCreate9(D3D_SDK_VERSION);
+    if (!pD3D) {
+        DestroyWindow(hWnd);
+        UnregisterClassA("GA_Dummy", wc.hInstance);
+        return false;
+    }
+
+    D3DPRESENT_PARAMETERS d3dpp = {};
+    d3dpp.Windowed = TRUE;
+    d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    d3dpp.hDeviceWindow = hWnd;
+
+    LPDIRECT3DDEVICE9 pDummyDevice = nullptr;
+    HRESULT hr = pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &d3dpp, &pDummyDevice);
+    if (FAILED(hr)) {
+        pD3D->Release();
+        DestroyWindow(hWnd);
+        UnregisterClassA("GA_Dummy", wc.hInstance);
+        return false;
+    }
+
+    void** pVTable = *reinterpret_cast<void***>(pDummyDevice);
+    void* pReset = pVTable[16];
+    void* pEndScene = pVTable[42];
+
+    if (MH_Initialize() == MH_OK) {
+        MH_CreateHook(pReset, &hkReset, reinterpret_cast<void**>(&oReset));
+        MH_CreateHook(pEndScene, &hkEndScene, reinterpret_cast<void**>(&oEndScene));
+        MH_EnableHook(MH_ALL_HOOKS);
+    }
+
+    pDummyDevice->Release();
+    pD3D->Release();
+    DestroyWindow(hWnd);
+    UnregisterClassA("GA_Dummy", wc.hInstance);
+    return true;
+}
+
 DWORD WINAPI MainInitThread(LPVOID) {
     while (GetModuleHandleA("samp.dll") == nullptr || GetModuleHandleA("d3d9.dll") == nullptr) {
         Sleep(100);
     }
 
-    if (kiero::init(kiero::RenderType::D3D9) == kiero::Status::Success) {
-        kiero::bind(42, reinterpret_cast<void**>(&oEndScene), reinterpret_cast<void*>(hkEndScene));
-        kiero::bind(16, reinterpret_cast<void**>(&oReset), reinterpret_cast<void*>(hkReset));
-    }
+    HookDirectX9();
     return 0;
 }
 
@@ -447,7 +486,8 @@ BOOL WINAPI DllMain(HMODULE hMod, DWORD dwReason, LPVOID) {
         DisableThreadLibraryCalls(hMod);
         CreateThread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(MainInitThread), nullptr, 0, nullptr);
     } else if (dwReason == DLL_PROCESS_DETACH) {
-        kiero::shutdown();
+        MH_DisableHook(MH_ALL_HOOKS);
+        MH_Uninitialize();
     }
     return TRUE;
 }
