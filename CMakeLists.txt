@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Глушим предупреждение политики для FetchContent в новых версиях CMake
 if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)
 endif()
@@ -28,7 +27,17 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
     GIT_TAG        v1.3.3
 )
-FetchContent_MakeAvailable(minhook)
+FetchContent_GetProperties(minhook)
+if(NOT minhook_POPULATED)
+    FetchContent_Populate(minhook)
+endif()
+
+# Собираем MinHook напрямую из исходных файлов (.c)
+file(GLOB MINHOOK_SOURCES
+    "${minhook_SOURCE_DIR}/src/*.c"
+    "${minhook_SOURCE_DIR}/src/HDE/hde32.c"
+    "${minhook_SOURCE_DIR}/src/hde/hde32.c"
+)
 
 # 2. Автоскачивание Dear ImGui
 FetchContent_Declare(
@@ -57,7 +66,7 @@ include_directories(
     ${IMGUI_DIR}/backends
 )
 
-# 3. Универсальный поиск main.cpp (в src/, в корне или во вложенных папках)
+# 3. Поиск main.cpp
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
     set(MAIN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -69,17 +78,19 @@ else()
     if(ALL_MAINS)
         list(GET ALL_MAINS 0 MAIN_SOURCE)
     else()
-        message(FATAL_ERROR "Файл main.cpp не найден ни в src/, ни в корне! Проверьте git status.")
+        message(FATAL_ERROR "Файл main.cpp не найден!")
     endif()
 endif()
 
+# Компилируем main.cpp, ImGui и MinHook в один .asi файл
 add_library(${PROJECT_NAME} SHARED
     ${MAIN_SOURCE}
     ${IMGUI_SOURCES}
+    ${MINHOOK_SOURCES}
 )
 
+# minhook удален из списка, так как скомпилирован напрямую выше
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    minhook
     d3d9
     shell32
     user32
